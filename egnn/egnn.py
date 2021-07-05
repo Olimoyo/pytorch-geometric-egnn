@@ -5,6 +5,7 @@ import torch.nn as nn
 from torch_geometric.datasets import QM9
 from torch_geometric.data import Data, DataLoader
 from torch_geometric.nn import MessagePassing
+from torch_geometric.utils import degree
 
 from torch import Tensor
 from typing import List, Optional, Set, Union, Tuple, Callable
@@ -57,10 +58,11 @@ class SparseEGNN(MessagePassing):
         )
     
     def forward(self, x, h, a, edge_index):
-        m_x, m_h = self.propagate(edge_index=edge_index, x=x, h=h, edge_attr=a)  
+        c = degree(edge_index[0]).unsqueeze(-1)
+        m_x, m_h = self.propagate(edge_index=edge_index, x=x, h=h, edge_attr=a)
         h_l1 = self.phi_h(torch.cat([h, m_h], dim=-1))
-        x_l1 = x + m_x
-        return x_l1, h_l1   
+        x_l1 = x + (m_x / c)
+        return x_l1, h_l1
 
     def message(self, x_i: Tensor, x_j: Tensor, h_i: Tensor, h_j: Tensor, edge_attr: Tensor) -> Tuple[Tensor, Tensor]:
         C = 1 / (x_i.shape[0] - 1)
