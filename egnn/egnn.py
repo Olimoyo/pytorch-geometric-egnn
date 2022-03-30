@@ -3,13 +3,12 @@ import os.path as osp
 import torch
 import torch.nn as nn
 from torch_geometric.datasets import QM9
-from torch_geometric.data import Data, DataLoader
+from torch_geometric.data import DataLoader
 from torch_geometric.nn import MessagePassing
 from torch_geometric.utils import degree
 
-from torch import Tensor
-from typing import List, Optional, Set, Union, Tuple, Callable
-from torch_geometric.typing import Adj, Size
+from typing import Union, Tuple
+
 
 class ResWrapper(torch.nn.Module):
     def __init__(self, module, dim_res=2):
@@ -57,43 +56,21 @@ class SparseEGNN(MessagePassing):
             dim_res=channels_h
         )
     
-    def forward(self, x, h, a, edge_index):
-        c = degree(edge_index[0]).unsqueeze(-1)
-        m_x, m_h = self.propagate(edge_index=edge_index, x=x, h=h, edge_attr=a)
+    def forward(self, x, h, edge_attr, edge_index, c=None):
+        if c is None:
+            c = degree(edge_index[0], x.shape[0]).unsqueeze(-1)
+        return self.propagate(edge_index=edge_index, x=x, h=h, edge_attr=edge_attr, c=c)
+
+    def message(self, x_i, x_j, h_i, h_j, edge_attr):
+        mh_ij = self.phi_e(torch.cat([h_i, h_j, torch.norm(x_i - x_j, dim=-1, keepdim=True), edge_attr], dim=-1))
+        mx_ij = (x_i - x_j) * self.phi_x(mh_ij)
+        return torch.cat((mx_ij, mh_ij), dim=-1)
+
+    def update(self, aggr_out, x, h, edge_attr, c):
+        m_x, m_h = aggr_out[:, :self.m_len], aggr_out[:, self.m_len:]
         h_l1 = self.phi_h(torch.cat([h, m_h], dim=-1))
         x_l1 = x + (m_x / c)
         return x_l1, h_l1
-
-    def message(self, x_i: Tensor, x_j: Tensor, h_i: Tensor, h_j: Tensor, edge_attr: Tensor) -> Tuple[Tensor, Tensor]:
-        C = 1 / (x_i.shape[0] - 1)
-        mh_ij = self.phi_e(torch.cat([h_i, h_j, torch.norm(x_i - x_j, dim=-1, keepdim=True), edge_attr], dim=-1))
-        mx_ij = C * (x_i - x_j) * self.phi_x(mh_ij)
-        return mx_ij, mh_ij
-
-    def propagate(self, edge_index: Adj, size: Size = None, **kwargs):
-        r"""The initial call to start propagating messages. 
-        Modified for EGNN update scheme from: 
-        https://github.com/rusty1s/pytorch_geometric/blob/master/torch_geometric/nn/conv/message_passing.py
-        """
-        size = self.__check_input__(edge_index, size)
-        coll_dict = self.__collect__(self.__user_args__, edge_index, 
-                                     size, kwargs)
-        
-        # Propagate messages over complete graph
-        msg_kwargs = self.inspector.distribute('message', coll_dict)
-        mx_ij, mh_ij = self.message(**msg_kwargs)
-
-        # Save coordinate dimension and propagate once
-        x_dim = mx_ij.shape[-1]
-        m_ij = torch.cat([mx_ij, mh_ij], dim=-1)
-
-        aggr_kwargs = self.inspector.distribute('aggregate', coll_dict)
-        m_i = self.aggregate(m_ij, **aggr_kwargs)
-
-        m_x = m_i[:, :x_dim]
-        m_h = m_i[:, x_dim:]
-
-        return m_x, m_h
 
 def sparse_egnn_test(loader):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
