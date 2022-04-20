@@ -62,7 +62,7 @@ class SparseEGNN(MessagePassing):
         return self.propagate(edge_index=edge_index, x=x, h=h, edge_attr=edge_attr, c=c)
 
     def message(self, x_i, x_j, h_i, h_j, edge_attr):
-        mh_ij = self.phi_e(torch.cat([h_i, h_j, torch.norm(x_i - x_j, dim=-1, keepdim=True), edge_attr], dim=-1))
+        mh_ij = self.phi_e(torch.cat([h_i, h_j, torch.norm(x_i - x_j, dim=-1, keepdim=True)**2, edge_attr], dim=-1))
         mx_ij = (x_i - x_j) * self.phi_x(mh_ij)
         return torch.cat((mx_ij, mh_ij), dim=-1)
 
