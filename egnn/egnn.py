@@ -21,8 +21,8 @@ class ResWrapper(torch.nn.Module):
         out = self.module(x)
         return out + res
 
-class SparseEGNN(MessagePassing):
-    """Sparse version of the EGNN network, where aggregation is done over neighbours only."""
+class EGNN(MessagePassing):
+    """EGNN layer from https://arxiv.org/pdf/2102.09844.pdf"""
     def __init__(self,
                  channels_h: Union[int, Tuple[int, int]],
                  channels_m: Union[int, Tuple[int, int]], 
@@ -30,7 +30,7 @@ class SparseEGNN(MessagePassing):
                  aggr: str = 'add', 
                  hidden_channels: int = 64,
                  **kwargs):
-        super(SparseEGNN, self).__init__(aggr=aggr, **kwargs)
+        super(EGNN, self).__init__(aggr=aggr, **kwargs)
 
         self.phi_e = nn.Sequential(
                 nn.Linear(2 * channels_h + 1 + channels_a, hidden_channels),
@@ -72,9 +72,13 @@ class SparseEGNN(MessagePassing):
         x_l1 = x + (m_x / c)
         return x_l1, h_l1
 
-def sparse_egnn_test(loader):
+def egnn_test():
+    path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'QM9')
+    dataset = QM9(path).shuffle()
+    loader = DataLoader(dataset, batch_size=32, shuffle=True)
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = SparseEGNN(
+    model = EGNN(
         channels_h=11, 
         channels_m=32, 
         channels_a=4
@@ -93,10 +97,6 @@ def sparse_egnn_test(loader):
 
         print("Post propagation x, h: ", x_l1.shape, h_l1.shape)
         break      
-      
-if __name__ == "__main__":
-    path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'QM9')
-    dataset = QM9(path).shuffle()
-    train_loader = DataLoader(dataset, batch_size=32, shuffle=True)
 
-    sparse_egnn_test(train_loader)
+if __name__ == "__main__":
+    egnn_test()
